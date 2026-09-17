@@ -5,14 +5,31 @@ import time
 from datetime import datetime
 
 
+def get_app_folder():
+    """
+    Get the folder containing PaperClipper.exe when compiled,
+    or the folder containing main.py when running from Python.
+    """
+    if getattr(__import__("sys"), "frozen", False):
+        return os.path.dirname(os.path.abspath(__import__("sys").executable))
+
+    return os.path.dirname(os.path.abspath(__file__))
+
+
 class Recorder:
     def __init__(self):
-        self.base_folder = os.path.dirname(os.path.abspath(__file__))
+        self.base_folder = get_app_folder()
 
         self.ffmpeg_path = os.path.join(
             self.base_folder,
             "ffmpeg",
             "ffmpeg.exe"
+        )
+
+        self.ffprobe_path = os.path.join(
+            self.base_folder,
+            "ffmpeg",
+            "ffprobe.exe"
         )
 
         self.clips_folder = os.path.join(
@@ -35,8 +52,13 @@ class Recorder:
         self.max_segments = 320
 
     def start(self):
+        if not os.path.exists(self.ffmpeg_path):
+            print("Missing FFmpeg:")
+            print(self.ffmpeg_path)
+            return False
+
         if self.process and self.process.poll() is None:
-            return
+            return True
 
         for filename in os.listdir(self.temp_folder):
             if filename.startswith("buffer_") and filename.endswith(".ts"):
@@ -101,10 +123,12 @@ class Recorder:
             ).start()
 
             print("Recording started.")
+            return True
 
         except Exception as e:
             print(f"Failed to start FFmpeg: {e}")
             self.process = None
+            return False
 
     def _read_errors(self):
         if not self.process or not self.process.stderr:
@@ -168,9 +192,7 @@ class Recorder:
                     if size < 1024:
                         continue
 
-                    segments.append(
-                        (modified, path)
-                    )
+                    segments.append((modified, path))
 
                 except OSError:
                     continue
@@ -180,17 +202,12 @@ class Recorder:
 
         segments.sort(key=lambda x: x[0])
 
-        # The newest file is probably still being written.
         if len(segments) > 1:
             segments = segments[:-1]
 
-        return [
-            path
-            for _, path in segments
-        ]
+        return [path for _, path in segments]
 
     def clip(self, seconds):
-
         with self.lock:
 
             if not self.process or self.process.poll() is not None:
@@ -199,11 +216,8 @@ class Recorder:
 
             seconds = int(seconds)
 
-            print(
-                f"Preparing {seconds}-second clip..."
-            )
+            print(f"Preparing {seconds}-second clip...")
 
-            # Give FFmpeg time to finish the current segment.
             time.sleep(0.25)
 
             segments = self._get_complete_segments()
@@ -212,11 +226,7 @@ class Recorder:
                 print("No completed recording segments yet.")
                 return None
 
-            wanted = min(
-                seconds,
-                len(segments)
-            )
-
+            wanted = min(seconds, len(segments))
             selected = segments[-wanted:]
 
             if not selected:
@@ -238,7 +248,6 @@ class Recorder:
             )
 
             try:
-
                 with open(
                     concat_file,
                     "w",
@@ -246,7 +255,6 @@ class Recorder:
                 ) as f:
 
                     for path in selected:
-
                         safe_path = os.path.abspath(
                             path
                         ).replace("\\", "/")
@@ -297,47 +305,34 @@ class Recorder:
                         errors="ignore"
                     ).strip()
 
-                    print(
-                        "Clip creation failed:"
-                    )
+                    print("Clip creation failed:")
                     print(error)
 
-                    if os.path.exists(output):
-                        try:
+                    try:
+                        if os.path.exists(output):
                             os.remove(output)
-                        except Exception:
-                            pass
+                    except Exception:
+                        pass
 
                     return None
 
                 if not os.path.exists(output):
-                    print(
-                        "FFmpeg finished but no clip was created."
-                    )
+                    print("FFmpeg finished but no clip was created.")
                     return None
 
                 if os.path.getsize(output) < 1024:
-                    print(
-                        "Created clip was too small."
-                    )
+                    print("Created clip was too small.")
                     return None
 
-                print(
-                    f"Saved: {output}"
-                )
+                print(f"Saved: {output}")
 
                 return output
 
             except Exception as e:
-
-                print(
-                    f"Clip error: {e}"
-                )
-
+                print(f"Clip error: {e}")
                 return None
 
             finally:
-
                 try:
                     if os.path.exists(concat_file):
                         os.remove(concat_file)
