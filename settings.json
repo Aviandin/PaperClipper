@@ -1,0 +1,7 @@
+{
+    "primary_clip_seconds": 30,
+    "secondary_clip_seconds": 60,
+    "primary_hotkey": "f8",
+    "secondary_hotkey": "f9",
+    "clips_folder": "clips"
+}
